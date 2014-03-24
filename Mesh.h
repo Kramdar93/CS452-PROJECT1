@@ -6,18 +6,22 @@
 #ifndef __MESH_H__
 #define __MESH_H__
 
+#include <GL/glew.h>
+#include <GL/freeglut.h>
+#include <string>
+
 class Mesh{
 public:
-	Mesh(GLuint vertexp, GLuint indexp, GLuint texturep);
-	void update();
+	Mesh(std::string n);
+	//void update();
 	//void draw();
 	void translate(float dx, float dy, float dz);
 	void rotate(float dpitch, float dyaw, float droll);
 	void scale(float dscalex, float dscaley, float dscalez);
 	void getMatrix(GLfloat out_m[4][4]);
-	GLuint getVertP();
-	GLuint getIndP();
-	GLuint getTexP();
+	//GLuint getVertP();
+	//GLuint getIndP();
+	//GLuint getTexP();
 	float getX();
 	float getY();
 	float getZ();
@@ -27,10 +31,12 @@ public:
 	float getScaleX();
 	float getScaleY();
 	float getScaleZ();
+	std::string getName();
 
 private:
 	float x, y, z, pitch, yaw, roll, scaleX, scaleY, scaleZ;
-	GLuint verts, inds, tex;
+	std::string name;
+	//GLuint verts, inds, tex;
 	//bool ready;
 	//GLfloat matrix[4][4];
 };
