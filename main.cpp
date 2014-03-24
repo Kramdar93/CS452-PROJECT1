@@ -1,14 +1,12 @@
 /* Written by Jeffrey Chastine, 2012 */
-/* Lazily adapted by Mark Elsinger, 2014 
-	into engine for Helicopter++, a heavily centralized 
-	and lowly objectified game. probaly undeserving of the
-	++ suffix. */
+/* Lazily adapted by Mark Elsinger, 2014 */
 #include <GL/glew.h>
 #include <GL/freeglut.h>
 #include <stdio.h>
 #include <string>
 #include <fstream>
 #include <vector>
+#include <random>
 
 #define _USE_MATH_DEFINES
 #include <math.h>
@@ -16,26 +14,35 @@
 #include "Mesh.h"
 
 #define BUFFER_OFFSET(i) ((char *)NULL + (i))
-
+typedef unsigned char Uint8; //close enough
 GLuint shaderProgramID;
 GLuint vao = 0;
 GLuint vbo[2];
-GLuint positionID, colorID;
+GLuint positionID, texcoordID, textures[1];
 GLuint * indexArray = NULL;
 GLfloat projection[4][4];
 GLfloat * projection_p = (GLfloat *)projection;
 int ilen = 0;
-float currentRoll = 0.0f;
-float currentPitch = 0.0f;
-float currentYaw = 0.0f;
+//float currentRoll = 0.0f;
+//float currentPitch = 0.0f;
+//float currentYaw = 0.0f;
 //float dYaw = 0.0f;
 //float dRoll= 0.0f;
 //float dPitch = 0.0f;
-float currentX = 0.0f;
-float currentY = 0.0f;
-float currentZ = 0.0f;
-float currentS = 1.0f;
-std::vector<Mesh> meshes;
+//float currentX = 0.0f;
+//float currentY = 0.0f;
+//float currentZ = 0.0f;
+//float currentS = 1.0f;
+float speed = 0.1f;
+Mesh player("player");
+std::vector<Mesh *> static_objects, moving_objects; //quite ironic really...
+//game variables
+int ammo = 5;
+float velY = 0.0f;
+float thrust = -0.001f;
+unsigned int time_next_powerup;
+float clearance, ceiling_height, increment;
+
 
 #pragma region SHADER_FUNCTIONS
 static char* readFile(const char* filename) {
@@ -124,7 +131,7 @@ GLuint makeShaderProgram(GLuint vertexShaderID, GLuint fragmentShaderID) {
 #pragma region HELPER_FUNCTIONS
 
 
-//tris only for now
+//tris only for now, restricted practical use.
 void parseFlatObjFile(char * filename, GLfloat ** vertices, int * vlength, GLuint ** indices, int * ilength)
 {
 	GLfloat * verts = *vertices; //this is necessary for some reason...
@@ -216,6 +223,123 @@ void parseFlatObjFile(char * filename, GLfloat ** vertices, int * vlength, GLuin
 	*/
 }
 
+//pretty much same as above but provides texture mapping!
+void parseUVObjFile(char * filename, GLfloat ** vertices, int * vlength, GLuint ** indices, int * ilength, GLfloat ** texcoords, int * tlength)
+{
+	GLfloat * verts = *vertices; //this is necessary for some reason...
+	GLuint * inds = *indices;    //just using the arguments didn't work...
+	GLfloat * texs = *texcoords;
+
+	std::ifstream in(filename);
+	if (!in.good())
+	{
+
+		printf("bad file: %s\n", filename);
+		system("PAUSE");
+		exit(-1);
+	}
+	const int MAX_LINE_LENGTH = 80;
+	char s[MAX_LINE_LENGTH + 1];
+	int vtex_count = 0;
+	int indx_count = 0;
+	int texs_count = 0;
+	do
+	{
+		in.getline(s, MAX_LINE_LENGTH);
+		//printf("%s\n", s); //debug
+		if (s[0] == 'v' && s[1] != 't')
+		{
+			vtex_count = vtex_count + 3;
+		}
+		if (s[0] == 'f')
+		{
+			indx_count = indx_count + 3;
+		}
+		if (s[0] == 'v' && s[1] == 't')
+		{
+			texs_count = texs_count + 2;
+		}
+	} while (!in.eof());
+
+	in.clear();
+	in.seekg(0, std::ios::beg);
+
+	*vlength = vtex_count;
+	*ilength = indx_count;
+	*tlength = texs_count;
+	//gonna assume 3 per index and vertex!
+	//*vertices = new GLfloat[vtex_count];
+	//*indices = new GLuint[indx_count];
+	verts = new GLfloat[vtex_count];
+	inds = new GLuint[indx_count];
+	texs = new GLfloat[texs_count];
+
+	int iv = 0;
+	int ii = 0;
+	int it = 0;
+	char * tmp = NULL;
+	char * nxt_tmp = NULL;
+	do
+	{
+		in.getline(s, MAX_LINE_LENGTH);
+		//printf("%s\n", s);
+		if (s[0] == 'v' && s[1] != 't')
+		{
+			tmp = strtok_s(&s[1], " ", &nxt_tmp);
+			for (int i = 0; i < 3 && iv < vtex_count; ++i)
+			{
+				verts[iv] = (GLfloat)atof(tmp);
+				tmp = strtok_s(NULL, " ", &nxt_tmp);
+				++iv;
+			}
+		}
+		else if (s[0] == 'f')
+		{
+			tmp = strtok_s(&s[1], " ", &nxt_tmp);
+			for (int i = 0; i < 3 && ii < indx_count; ++i)
+			{
+				inds[ii] = (GLuint)atoi(tmp);
+				tmp = strtok_s(NULL, " ", &nxt_tmp);
+				++ii;
+			}
+		}
+		else if (s[0] == 'v' && s[1] == 't')
+		{
+			tmp = strtok_s(&s[2], " ", &nxt_tmp);
+			for (int i = 0; i < 2 && it < texs_count; ++i) //assume only u&v coords
+			{
+				texs[it] = (GLfloat)atof(tmp);
+				tmp = strtok_s(NULL, " ", &nxt_tmp);
+				++it;
+			}
+		} 
+
+	} while (iv <= vtex_count && ii <= indx_count && it <= texs_count && !in.eof());
+
+	*vertices = verts;
+	*indices = inds;
+	*texcoords = texs;
+
+	//should be good
+	printf("vcount: %d\nicount: %d\n", vtex_count, indx_count); //debug
+	/*
+	for (int i = 0; i < vtex_count; ++i)
+	{
+		printf("%f\n", verts[i]);
+	}
+	system("PAUSE");
+	for (int i = 0; i < indx_count; ++i)
+	{
+		printf("%d\n", inds[i]);
+	}
+	system("PAUSE");
+	for (int i = 0; i < texs_count; ++i)
+	{
+		printf("%f\n", texs[i]);
+	}
+	system("PAUSE"); */
+}
+
 //this is for 4x4, hard coded.
 void createPerspectiveMatrix4(float fov, float aspect, float _near, float _far, GLfloat out_m[4][4])
 {
@@ -228,7 +352,7 @@ void createPerspectiveMatrix4(float fov, float aspect, float _near, float _far, 
 		}
 	}
 
-	float angle = (fov / 180.0f) * M_PI;
+	float angle = (fov / 180.0f) * (float)M_PI;
 	float f = 1.0f / tan(angle * 0.5f);
 
 	/* Note, matrices are accessed like 2D arrays in C.
@@ -310,9 +434,9 @@ void createTranslationMatrix4(float x, float y, float z, GLfloat out_m[4][4])
 	out_m[0][0] = 1.0f;
 	out_m[1][1] = 1.0f;
 	out_m[2][2] = 1.0f;
-	out_m[3][0] = -x;
-	out_m[3][1] = -y;
-	out_m[3][2] = -z;
+	out_m[3][0] = x;
+	out_m[3][1] = y;
+	out_m[3][2] = z;
 	out_m[3][3] = 1.0f;
 
 	//return m;
@@ -384,22 +508,96 @@ void createRotationMatrixZ4(float pitch, GLfloat out_m[4][4])
 
 }
 
-//SLOW!!! but might be good for getting a uniform matrix?
-void multMatrices(GLfloat first[4][4], GLfloat second[4][4], GLfloat out_m[4][4])
+//kinda need windows for this bit. easily ported to linux though, just need libraries...
+//also nabbed this from http://www.cplusplus.com/articles/GwvU7k9E/, thanks Fredbill =]
+int loadBMP(const char* location, GLuint *texture)
 {
-	int sum = 0;
-	for (int i = 0; i < 4; ++i)
+	Uint8* datBuff[2] = { nullptr, nullptr }; // Header buffers
+
+	Uint8* pixels = nullptr; // Pixels
+
+	BITMAPFILEHEADER* bmpHeader = nullptr; // Header
+	BITMAPINFOHEADER* bmpInfo = nullptr; // Info 
+
+	// The file... We open it with it's constructor
+	std::ifstream file(location, std::ios::binary);
+	if (!file)
 	{
-		for (int j = 0; j < 4; ++j)
-		{
-			sum = 0;
-			for (int k = 0; k < 4; ++k)
-			{
-				sum += first[k][i] * second[j][k];
-			}
-			out_m[i][j] = sum;
-		}
+		printf("Failure to open bitmap file.\n");
+
+		return 1;
 	}
+
+	// Allocate byte memory that will hold the two headers
+	datBuff[0] = new Uint8[sizeof(BITMAPFILEHEADER)];
+	datBuff[1] = new Uint8[sizeof(BITMAPINFOHEADER)];
+
+	file.read((char*)datBuff[0], sizeof(BITMAPFILEHEADER));
+	file.read((char*)datBuff[1], sizeof(BITMAPINFOHEADER));
+
+	// Construct the values from the buffers
+	bmpHeader = (BITMAPFILEHEADER*)datBuff[0];
+	bmpInfo = (BITMAPINFOHEADER*)datBuff[1];
+
+	// Check if the file is an actual BMP file
+	if (bmpHeader->bfType != 0x4D42)
+	{
+		printf("File \"%s\" isn't a bitmap file\n", location);
+		return 2;
+	}
+
+	// First allocate pixel memory
+	pixels = new Uint8[bmpInfo->biSizeImage];
+
+	// Go to where image data starts, then read in image data
+	file.seekg(bmpHeader->bfOffBits);
+	file.read((char*)pixels, bmpInfo->biSizeImage);
+
+	// We're almost done. We have our image loaded, however it's not in the right format.
+	// .bmp files store image data in the BGR format, and we have to convert it to RGB.
+	// Since we have the value in bytes, this shouldn't be to hard to accomplish
+	Uint8 tmpRGB = 0; // Swap buffer
+	for (unsigned long i = 0; i < bmpInfo->biSizeImage; i += 3)
+	{
+		tmpRGB = pixels[i];
+		pixels[i] = pixels[i + 2];
+		pixels[i + 2] = tmpRGB;
+	}
+
+	// Set width and height to the values loaded from the file
+	GLuint w = bmpInfo->biWidth;
+	GLuint h = bmpInfo->biHeight;
+
+	/*******************GENERATING TEXTURES*******************/
+
+	//enable that texturing?
+	glEnable(GL_TEXTURE_2D);
+	glActiveTexture(GL_TEXTURE0);
+
+	glGenTextures(1, texture);             // Generate a texture
+	glBindTexture(GL_TEXTURE_2D, *texture); // Bind that texture temporarily
+
+	GLint mode = GL_RGB;                   // Set the mode
+
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
+	// Create the texture. We get the offsets from the image, then we use it with the image's
+	// pixel data to create it.
+	glTexImage2D(GL_TEXTURE_2D, 0, mode, w, h, 0, mode, GL_UNSIGNED_BYTE, pixels);
+
+	// Unbind the texture
+	glBindTexture(GL_TEXTURE_2D, NULL);
+
+	// Output a successful message
+	printf("Texture \"%s\" successfully loaded.\n", location);
+
+	// Delete the two buffers.
+	delete[] datBuff[0];
+	delete[] datBuff[1];
+	delete[] pixels;
+
+	return 0; // Return success code 
 }
 
 #pragma endregion HELPER_FUNCTIONS
@@ -411,111 +609,109 @@ void changeViewport(int w, int h){
 	glViewport(0, 0, w, h);
 }
 
+void renderMesh(Mesh m)
+{
+
+	//GLfloat model[4][4], view[4][4], projection[4][4];
+	GLfloat modelT[4][4], modelX[4][4], modelY[4][4], modelZ[4][4], modelS[4][4], view[4][4];
+	createTranslationMatrix4(m.getX(), m.getY(), m.getZ(), modelT);
+	createRotationMatrixX4(m.getRoll(), modelX);
+	createRotationMatrixY4(m.getPitch(), modelY);
+	createRotationMatrixZ4(m.getYaw(), modelZ);
+	createScaleMatrix4(m.getScaleX(), m.getScaleY(), m.getScaleY(), modelS);
+
+	createTranslationMatrix4(0.0f, 0.0f, -5.0f, view);
+
+	GLfloat * modelT_p = (GLfloat *)modelT;
+	GLfloat * modelX_p = (GLfloat *)modelX;
+	GLfloat * modelY_p = (GLfloat *)modelY;
+	GLfloat * modelZ_p = (GLfloat *)modelZ;
+	GLfloat * modelS_p = (GLfloat *)modelS;
+	GLfloat * view_p = (GLfloat *)view;
+
+
+
+	/*for (int i = 0; i < 4; ++i)
+	{
+	for (int j = 0; j < 4; ++j)
+	{
+	printf("%f ", view[i][j]);
+	}
+	printf("\n");
+	}*/
+
+	GLint tempLoc = glGetUniformLocation(shaderProgramID, "s_mMT");//Matrix that handle the transformations
+	glUniformMatrix4fv(tempLoc, 1, GL_FALSE, modelT_p);
+
+	tempLoc = glGetUniformLocation(shaderProgramID, "s_mMX");
+	glUniformMatrix4fv(tempLoc, 1, GL_FALSE, modelX_p);
+
+	tempLoc = glGetUniformLocation(shaderProgramID, "s_mMY");
+	glUniformMatrix4fv(tempLoc, 1, GL_FALSE, modelY_p);
+
+	tempLoc = glGetUniformLocation(shaderProgramID, "s_mMZ");
+	glUniformMatrix4fv(tempLoc, 1, GL_FALSE, modelZ_p);
+
+	tempLoc = glGetUniformLocation(shaderProgramID, "s_mMS");
+	glUniformMatrix4fv(tempLoc, 1, GL_FALSE, modelS_p);
+
+	tempLoc = glGetUniformLocation(shaderProgramID, "s_mV");
+	glUniformMatrix4fv(tempLoc, 1, GL_FALSE, view_p);
+
+	tempLoc = glGetUniformLocation(shaderProgramID, "s_mP");
+	glUniformMatrix4fv(tempLoc, 1, GL_FALSE, projection_p);
+
+	//glDrawArrays(GL_TRIANGLES, 0, 3);
+
+	glBindTexture(GL_TEXTURE_2D, textures[0]);
+	glDrawElements(GL_TRIANGLES, ilen, GL_UNSIGNED_INT, NULL);
+	glBindTexture(GL_TEXTURE_2D, NULL);
+}
+
+
 // Here is the function that gets called each time the window needs to be redrawn.
 // It is the "paint" method for our program, and is set up from the glutDisplayFunc in main
 void render() {
+
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-	GLfloat view[4][4];
-	createIdentityMatrix4(view);
-	createTranslationMatrix4(0.0f, 0.0f, 5.0f, view);
-	GLfloat * view_p = (GLfloat *)view;
-	GLuint tempLoc = glGetUniformLocation(shaderProgramID, "s_mV");
-	glUniformMatrix4fv(tempLoc, 1, GL_FALSE, view_p);
 
-	for each(Mesh m in meshes)
+	for each(Mesh* m in static_objects)
 	{
-		//GLfloat model[4][4], view[4][4], projection[4][4];
-		GLfloat modelT[4][4], modelX[4][4], modelY[4][4], modelZ[4][4], modelS[4][4];
-		createTranslationMatrix4(m.getX(), m.getY(), m.getZ(), modelT);
-		createRotationMatrixX4(m.getRoll(), modelX);
-		createRotationMatrixY4(m.getPitch(), modelY);
-		createRotationMatrixZ4(m.getYaw(), modelZ);
-		createScaleMatrix4(m.getScaleX(), m.getScaleY(), m.getScaleY(), modelS);
-
-
-		GLfloat * modelT_p = (GLfloat *)modelT;
-		GLfloat * modelX_p = (GLfloat *)modelX;
-		GLfloat * modelY_p = (GLfloat *)modelY;
-		GLfloat * modelZ_p = (GLfloat *)modelZ;
-		GLfloat * modelS_p = (GLfloat *)modelS;
-		//GLfloat * view_p = (GLfloat *)view;
-
-
-
-		/*for (int i = 0; i < 4; ++i)
-		{
-		for (int j = 0; j < 4; ++j)
-		{
-		printf("%f ", view[i][j]);
-		}
-		printf("\n");
-		}*/
-
-		tempLoc = glGetUniformLocation(shaderProgramID, "s_mMT");//Matrix that handle the transformations
-		glUniformMatrix4fv(tempLoc, 1, GL_FALSE, modelT_p);
-
-		tempLoc = glGetUniformLocation(shaderProgramID, "s_mMX");
-		glUniformMatrix4fv(tempLoc, 1, GL_FALSE, modelX_p);
-
-		tempLoc = glGetUniformLocation(shaderProgramID, "s_mMY");
-		glUniformMatrix4fv(tempLoc, 1, GL_FALSE, modelY_p);
-
-		tempLoc = glGetUniformLocation(shaderProgramID, "s_mMZ");
-		glUniformMatrix4fv(tempLoc, 1, GL_FALSE, modelZ_p);
-
-		tempLoc = glGetUniformLocation(shaderProgramID, "s_mMS");
-		glUniformMatrix4fv(tempLoc, 1, GL_FALSE, modelS_p);
-
-		//tempLoc = glGetUniformLocation(shaderProgramID, "s_mV");
-		//glUniformMatrix4fv(tempLoc, 1, GL_FALSE, view_p);
-
-		tempLoc = glGetUniformLocation(shaderProgramID, "s_mP");
-		glUniformMatrix4fv(tempLoc, 1, GL_FALSE, projection_p);
-
-		//glDrawArrays(GL_TRIANGLES, 0, 3);
-		glDrawElements(GL_TRIANGLES, ilen, GL_UNSIGNED_INT, 0);
+		renderMesh(*m);
 	}
+
+	renderMesh(player);
+
 	glutSwapBuffers();
 
 	//currentYaw += 0.01f; //debug
 }
 
 //realy the update func
-void timer(int val)
+void update(int val)
 {
-	for each (Mesh m in meshes)
+	//currentYaw += dYaw; //debug
+	//currentRoll += dRoll;
+	//currentPitch += dPitch;
+
+	for each(Mesh* m in static_objects)
 	{
-		m.update();
+		m->translate(-speed, 0.0f, 0.0f);
 	}
+
+	velY += thrust;
+	//player.translate(0.0f, velY, 0.0f);
+
 	glutPostRedisplay();
-	glutTimerFunc(10, timer, 1);
+	glutTimerFunc(17, update, 1);
 }
 
-/*void mouse(int button, int state, int x, int y)
+void mouse(int button, int state, int x, int y)
 {
-if (button == GLUT_LEFT_BUTTON && state == GLUT_DOWN)
-{
-if (dYaw > 0.0f)
-{
-dYaw = 0.0f;
-dPitch = 0.0f;
-dRoll = 0.01f;
+	
 }
-else if (dRoll > 0.0f)
-{
-dYaw = 0.0f;
-dPitch = 0.01f;
-dRoll = 0.0f;
-}
-else
-{
-dYaw = 0.01f;
-dPitch = 0.0f;
-dRoll = 0.0f;
-}
-}
-}*/
 
+/*
 void keyboard(unsigned char key, int x, int y)
 {
 	if (key == 'w')
@@ -563,6 +759,11 @@ void keyboard(unsigned char key, int x, int y)
 	{
 		currentYaw -= 0.1f;
 	}
+} */
+
+void gameInit()
+{
+	static_objects.push_back(new Mesh("test"));
 }
 
 int main(int argc, char** argv) {
@@ -570,12 +771,12 @@ int main(int argc, char** argv) {
 	glutInit(&argc, argv);
 	glutInitDisplayMode(GLUT_RGBA | GLUT_DOUBLE | GLUT_DEPTH);
 	glutInitWindowSize(800, 500);
-	glutCreateWindow("Helicopter++");
+	glutCreateWindow("Shaders");
 	glutReshapeFunc(changeViewport);
 	glutDisplayFunc(render);
-	glutTimerFunc(10, timer, 1);
-	//glutMouseFunc(mouse);
-	glutKeyboardFunc(keyboard);
+	glutTimerFunc(17, update, 1);
+	glutMouseFunc(mouse);
+	//glutKeyboardFunc(keyboard);
 	glewInit();
 
 	glCullFace(GL_BACK);
@@ -592,31 +793,16 @@ int main(int argc, char** argv) {
 	0.0f, 0.0f, 1.0f, 1.0f };
 	GLint indices[] = { 1, 2, 3 };
 	*/
-	GLfloat * vertices = NULL, *colors = NULL;
+	GLfloat * vertices = NULL, *texcoord = NULL;
 	//GLuint * indices = NULL;
-	int vlen = 0, clen = 0;
+	int vlen = 0, tlen = 0;
 	//int ilen = 0;
 
-	parseFlatObjFile("plane.obj", &vertices, &vlen, &indexArray, &ilen);
-	//no color support yet, use position.
-	clen = vlen;
-	colors = new GLfloat[clen];
-	//printf("vlen = %d\n", vlen);
-	for (int i = 0; i < clen; ++i) //clamp them vals
-	{
-		//printf("at %d!\n", i);
-		if (vertices[i] < 0.0f)
-		{
-			colors[i] = 0.0f;
-		}
-		else
-		{
-			colors[i] = vertices[i];
-		}
-		//printf("%f\n", colors[i]);
-	}
+	//parseFlatObjFile("plane.obj", &vertices, &vlen, &indexArray, &ilen);
+	parseUVObjFile("plane.obj", &vertices, &vlen, &indexArray, &ilen, &texcoord, &tlen);
 
-
+	printf("vlen: %d\n", vlen);
+	printf("tlen: %d\n", tlen);
 	printf("ilen: %d\n", ilen);
 
 	//set up matrices
@@ -638,7 +824,6 @@ int main(int argc, char** argv) {
 	printf("fragShaderID is %d\n", fragShaderID);
 	printf("shaderProgramID is %d\n", shaderProgramID);
 
-
 	// Create the "remember all"
 	glGenVertexArrays(1, &vao);
 	glBindVertexArray(vao);
@@ -646,11 +831,11 @@ int main(int argc, char** argv) {
 	glGenBuffers(2, vbo);
 	glBindBuffer(GL_ARRAY_BUFFER, vbo[0]);
 	// Create the buffer, but don't load anything yet
-	glBufferData(GL_ARRAY_BUFFER, (vlen + clen)*(sizeof(GLfloat)), NULL, GL_STATIC_DRAW);
+	glBufferData(GL_ARRAY_BUFFER, (vlen + tlen)*(sizeof(GLfloat)), NULL, GL_STATIC_DRAW);
 	// Load the vertex points
 	glBufferSubData(GL_ARRAY_BUFFER, 0, vlen*sizeof(GLfloat), vertices);
 	// Load the colors right after that
-	glBufferSubData(GL_ARRAY_BUFFER, vlen*sizeof(GLfloat), clen*sizeof(GLfloat), colors);
+	glBufferSubData(GL_ARRAY_BUFFER, vlen*sizeof(GLfloat), tlen*sizeof(GLfloat), texcoord);
 
 	//now for the index array!
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, vbo[1]);
@@ -659,19 +844,23 @@ int main(int argc, char** argv) {
 
 	// Find the position of the variables in the shader
 	positionID = glGetAttribLocation(shaderProgramID, "s_vPosition");
-	colorID = glGetAttribLocation(shaderProgramID, "s_vColor");
+	texcoordID = glGetAttribLocation(shaderProgramID, "s_vTexcoord");
 	printf("s_vPosition's ID is %d\n", positionID);
-	printf("s_vColor's ID is %d\n", colorID);
+	printf("s_vTexcoord's ID is %d\n", texcoordID);
 
 	glVertexAttribPointer(positionID, 3, GL_FLOAT, GL_FALSE, 0, 0);
-	glVertexAttribPointer(colorID, 3, GL_FLOAT, GL_FALSE, 0, 0);
+	glVertexAttribPointer(texcoordID, 2, GL_FLOAT, GL_FALSE, 0, 0);
 	//glVertexAttribPointer(colorID, 4, GL_FLOAT, GL_FALSE, 0, 0);
 	glUseProgram(shaderProgramID);
 	glEnableVertexAttribArray(positionID);
-	glEnableVertexAttribArray(colorID);
+	glEnableVertexAttribArray(texcoordID);
 
 	//set up some stuff, maybe
 	//gluPerspective(45.0f, 1.6f, 0.1f, 10.0f);
+	loadBMP("Heli1.bmp", &textures[0]); //remember, heli is texture #0!
+
+	//load up game stuff
+	gameInit();
 
 	glutMainLoop();
 
