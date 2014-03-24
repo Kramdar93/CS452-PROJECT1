@@ -1,31 +1,37 @@
 /////////////////////////
 // Mesh abstracts a generic object to be drawn
 //  should be inheritted for interesting objects
+//  (also really just stores location and orientation stuff)
 // Mark Elsinger 2/12/2014
 /////////////////////////
 
 #include <GL/glew.h>
 #include <GL/freeglut.h>
+#include <string>
 
 #include "Mesh.h"
 
-Mesh::Mesh(GLuint vertexp, GLuint indexp, GLuint texturep)
+Mesh::Mesh(std::string n)
 {
-	x = 0;
-	y = 0;
-	z = 0;
-	roll = 0;
-	pitch = 0;
-	yaw = 0;
-	scaleX = 0;
-	scaleY = 0;
-	scaleZ = 0;
+	name = n;
+	x = 0.0f;
+	y = 0.0f;
+	z = 0.0f;
+	roll = 0.0f;
+	pitch = 0.0f;
+	yaw = 0.0f;
+	scaleX = 1.0f;
+	scaleY = 1.0f;
+	scaleZ = 1.0f;
+	//verts = vertexp;
+	//inds = indexp;
+	//tex = texturep;
 }
 
-void Mesh::update()
+/*void Mesh::update()
 {
 	//overwrite for actual entities...
-}
+}*/
 
 void Mesh::translate(float dx, float dy, float dz)
 {
@@ -61,7 +67,7 @@ void Mesh::scale(float dscalex, float dscaley, float dscalez)
 }
 
 #pragma region GETTERS
-
+/*
 GLuint Mesh::getVertP()
 {
 	return verts;
@@ -76,6 +82,7 @@ GLuint Mesh::getTexP()
 {
 	return tex;
 }
+*/
 
 float Mesh::getX()
 {
@@ -120,6 +127,11 @@ float Mesh::getScaleY()
 float Mesh::getScaleZ()
 {
 	return scaleZ;
+}
+
+std::string Mesh::getName()
+{
+	return name;
 }
 
 #pragma endregion GETTERS
