@@ -12,17 +12,18 @@
 
 class Mesh{
 public:
-	Mesh(std::string n);
+	Mesh(std::string n, float r, float b, float g);
 	//void update();
 	//void draw();
 	void translate(float dx, float dy, float dz);
 	void rotate(float dpitch, float dyaw, float droll);
 	void scale(float dscalex, float dscaley, float dscalez);
 	void getMatrix(GLfloat out_m[4][4]);
+	bool collidesWith(Mesh other);
 	//GLuint getVertP();
 	//GLuint getIndP();
 	//GLuint getTexP();
-	float getX();
+	/*float getX();
 	float getY();
 	float getZ();
 	float getRoll();
@@ -31,10 +32,13 @@ public:
 	float getScaleX();
 	float getScaleY();
 	float getScaleZ();
-	std::string getName();
+	float getRed();
+	float getBlue();
+	float getGreen();
+	std::string getName();*/
 
-private:
-	float x, y, z, pitch, yaw, roll, scaleX, scaleY, scaleZ;
+//private:
+	float x, y, z, pitch, yaw, roll, scaleX, scaleY, scaleZ, red, blue, green;
 	std::string name;
 	//GLuint verts, inds, tex;
 	//bool ready;
