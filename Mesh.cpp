@@ -11,7 +11,7 @@
 
 #include "Mesh.h"
 
-Mesh::Mesh(std::string n)
+Mesh::Mesh(std::string n, float r, float b, float g)
 {
 	name = n;
 	x = 0.0f;
@@ -23,6 +23,9 @@ Mesh::Mesh(std::string n)
 	scaleX = 1.0f;
 	scaleY = 1.0f;
 	scaleZ = 1.0f;
+	red = r;
+	blue = b;
+	green = g;
 	//verts = vertexp;
 	//inds = indexp;
 	//tex = texturep;
@@ -66,6 +69,21 @@ void Mesh::scale(float dscalex, float dscaley, float dscalez)
 	}
 }
 
+bool Mesh::collidesWith(Mesh other) //1x1 collision box
+{
+	if (x < other.x + 2.0f
+		&& x > other.x - 2.0f
+		&& y < other.y + 2.0f
+		&& y > other.y - 2.0f)
+	{
+		return true;
+	}
+	else
+	{
+		return false;
+	}
+}
+
 #pragma region GETTERS
 /*
 GLuint Mesh::getVertP()
@@ -84,6 +102,7 @@ GLuint Mesh::getTexP()
 }
 */
 
+/*
 float Mesh::getX()
 {
 	return x;
@@ -133,5 +152,6 @@ std::string Mesh::getName()
 {
 	return name;
 }
+*/
 
 #pragma endregion GETTERS
