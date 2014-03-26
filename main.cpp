@@ -7,6 +7,7 @@
 #include <fstream>
 #include <vector>
 #include <random>
+#include <ctime>
 
 #define _USE_MATH_DEFINES
 #include <math.h>
@@ -34,14 +35,19 @@ int ilen = 0;
 //float currentZ = 0.0f;
 //float currentS = 1.0f;
 float speed = 0.1f;
-Mesh player("player");
-std::vector<Mesh *> static_objects, moving_objects; //quite ironic really...
+Mesh player("player", 0.0f, 0.0f, 1.0f);
+std::vector<Mesh *> static_objects, moving_objects, wall_objects; //quite ironic really...
 //game variables
-int ammo = 5;
 float velY = 0.0f;
-float thrust = -0.001f;
+float thrust = 0.0f;
+const float MIN_THRUST = -0.01f;
+const float MAX_THRUST = 0.02f;
+const float TOP = 9.0f;
+const float START = 20.0f;
+const float INCREMENT = 0.01f;
 unsigned int time_next_powerup;
-float clearance, ceiling_height, increment;
+float clearance, ceiling_height;
+int score = 0;
 
 
 #pragma region SHADER_FUNCTIONS
@@ -572,7 +578,7 @@ int loadBMP(const char* location, GLuint *texture)
 
 	//enable that texturing?
 	glEnable(GL_TEXTURE_2D);
-	glActiveTexture(GL_TEXTURE0);
+	//glActiveTexture(GL_TEXTURE0);
 
 	glGenTextures(1, texture);             // Generate a texture
 	glBindTexture(GL_TEXTURE_2D, *texture); // Bind that texture temporarily
@@ -614,13 +620,20 @@ void renderMesh(Mesh m)
 
 	//GLfloat model[4][4], view[4][4], projection[4][4];
 	GLfloat modelT[4][4], modelX[4][4], modelY[4][4], modelZ[4][4], modelS[4][4], view[4][4];
+	/*
 	createTranslationMatrix4(m.getX(), m.getY(), m.getZ(), modelT);
 	createRotationMatrixX4(m.getRoll(), modelX);
 	createRotationMatrixY4(m.getPitch(), modelY);
 	createRotationMatrixZ4(m.getYaw(), modelZ);
 	createScaleMatrix4(m.getScaleX(), m.getScaleY(), m.getScaleY(), modelS);
+	*/
+	createTranslationMatrix4(m.x, m.y, m.z, modelT);
+	createRotationMatrixX4(m.roll, modelX);
+	createRotationMatrixY4(m.pitch, modelY);
+	createRotationMatrixZ4(m.yaw, modelZ);
+	createScaleMatrix4(m.scaleX, m.scaleY, m.scaleZ, modelS);
 
-	createTranslationMatrix4(0.0f, 0.0f, -5.0f, view);
+	createTranslationMatrix4(0.0f, 0.0f, -20.0f, view);
 
 	GLfloat * modelT_p = (GLfloat *)modelT;
 	GLfloat * modelX_p = (GLfloat *)modelX;
@@ -661,6 +674,9 @@ void renderMesh(Mesh m)
 	tempLoc = glGetUniformLocation(shaderProgramID, "s_mP");
 	glUniformMatrix4fv(tempLoc, 1, GL_FALSE, projection_p);
 
+	tempLoc = glGetUniformLocation(shaderProgramID, "color");
+	glUniform4f(tempLoc, m.red, m.blue, m.green, 1.0f);
+
 	//glDrawArrays(GL_TRIANGLES, 0, 3);
 
 	glBindTexture(GL_TEXTURE_2D, textures[0]);
@@ -669,11 +685,103 @@ void renderMesh(Mesh m)
 }
 
 
+void gameInit()
+{
+	srand(time(NULL));
+
+	//static_objects.push_back(new Mesh("test", 0.5f, 0.5f, 0.5f));
+	Mesh * temp = new Mesh("wall", 1.0f, 0.0f, 0.0f);
+	temp->translate(START, TOP, 0.0f);
+	wall_objects.push_back(temp);
+
+	temp = new Mesh("wall", 1.0f, 0.0f, 0.0f);
+	temp->translate(START, -TOP, 0.0f);
+	wall_objects.push_back(temp);
+
+	clearance = 18.0f;
+	ceiling_height = 0.0f; //as in 4 from top of allowed area
+
+	printf("Game init'd!\n");
+}
+
+void endGame()
+{
+	printf("Game Over\n");
+	printf("Score: %d\n", score);
+	system("pause");
+	exit(1);
+}
+
+
+
+//updates the world-> throws more objects at the player and checks collisions, game logic.
+//be sure to call initGame.
+void updateWorld()
+{
+	if (wall_objects.empty()) //make sure you're getting some obstacles.
+	{
+		gameInit();
+	}
+	
+	if (wall_objects.front()->x < -START) // wall (0 & 1) went well off-screen
+	{
+		delete(wall_objects.front());			//free the memory
+		wall_objects.erase(wall_objects.begin()); //remove the pointer from the vector
+		delete(wall_objects.front());			
+		wall_objects.erase(wall_objects.begin()); 
+	}
+
+	if (wall_objects.back()->x <= START - 2.0f + speed) //trailing wall has moved out of space, can make new walls!
+														//note planes have a with of 2!!!
+	{
+		int r = rand() % 3 - 1; //-1, 0, or 1
+		clearance -= INCREMENT;          // always gets smaller... it's a trap!
+		ceiling_height += r * INCREMENT * 10; // makes tunnel twist a bit
+		float offset = 0.5f * (2 * TOP - clearance);
+
+		if (clearance < 2.0f) //cant have negative space, remember width
+		{
+			clearance = 2.0f; //although game will be over before this...
+		}
+		if (ceiling_height + offset < 0) //ceiling cant be negatively high
+		{
+			ceiling_height = INCREMENT * 10;
+		}
+		if (ceiling_height + offset + clearance > 2 * TOP) //that's lower than -top! do not want!
+		{
+			ceiling_height -= INCREMENT * 20;
+		}
+
+		Mesh * temp;
+		temp = new Mesh("wall", 1.0f, 0.0f, r*1.0f);
+		temp->translate(START, TOP - (ceiling_height + offset), 0.0f);
+		wall_objects.push_back(temp);
+
+		temp = new Mesh("wall", 1.0f, 0.0f, 0.0f);
+		temp->translate(START, TOP - (ceiling_height + offset) - clearance, 0.0f);
+		wall_objects.push_back(temp);
+		//printf("added walls!\n");
+	}
+
+	for each (Mesh * m in wall_objects)
+	{
+		if (m->collidesWith(player))
+		{
+			endGame();
+		}
+	}
+}
+
 // Here is the function that gets called each time the window needs to be redrawn.
 // It is the "paint" method for our program, and is set up from the glutDisplayFunc in main
 void render() {
 
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+	for each(Mesh* m in wall_objects)
+	{
+		renderMesh(*m);
+	}
 
 	for each(Mesh* m in static_objects)
 	{
@@ -694,21 +802,42 @@ void update(int val)
 	//currentRoll += dRoll;
 	//currentPitch += dPitch;
 
+	updateWorld();
+
 	for each(Mesh* m in static_objects)
 	{
 		m->translate(-speed, 0.0f, 0.0f);
+		//printf("%f\n", m->x);
 	}
 
-	velY += thrust;
-	//player.translate(0.0f, velY, 0.0f);
+	for each(Mesh* m in wall_objects)
+	{
+		m->translate(-speed, 0.0f, 0.0f);
+		//printf("%f\n", m->x);
+	}
 
+	velY += thrust * speed;
+	player.translate(0.0f, velY, 0.0f);
+	speed += INCREMENT * 0.01f;
+	++score;
+	//printf("%f\n", player.y);
 	glutPostRedisplay();
 	glutTimerFunc(17, update, 1);
 }
 
 void mouse(int button, int state, int x, int y)
 {
-	
+	if (button == GLUT_LEFT_BUTTON)
+	{
+		if (state == GLUT_DOWN)
+		{
+			thrust = MAX_THRUST;
+		}
+		else
+		{
+			thrust = MIN_THRUST;
+		}
+	}
 }
 
 /*
@@ -761,10 +890,6 @@ void keyboard(unsigned char key, int x, int y)
 	}
 } */
 
-void gameInit()
-{
-	static_objects.push_back(new Mesh("test"));
-}
 
 int main(int argc, char** argv) {
 	// Standard stuff...
@@ -806,7 +931,7 @@ int main(int argc, char** argv) {
 	printf("ilen: %d\n", ilen);
 
 	//set up matrices
-	createPerspectiveMatrix4(45.0f, 1.6f, 0.1f, 10.0f, projection);
+	createPerspectiveMatrix4(45.0f, 1.6f, 10.0f, 30.0f, projection);
 	//CreateIdentityMatrix4(projection);
 
 	// Make a shader
@@ -858,6 +983,12 @@ int main(int argc, char** argv) {
 	//set up some stuff, maybe
 	//gluPerspective(45.0f, 1.6f, 0.1f, 10.0f);
 	loadBMP("Heli1.bmp", &textures[0]); //remember, heli is texture #0!
+
+	GLuint texID = glGetUniformLocation(shaderProgramID, "s_fTexture");
+	printf("s_fTexture location: %d\n", texID);
+
+	glActiveTexture(GL_TEXTURE0);
+	glUniform1i(texID, 0); //point dat uniform to the texture.
 
 	//load up game stuff
 	gameInit();
