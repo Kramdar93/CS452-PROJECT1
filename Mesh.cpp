@@ -84,6 +84,13 @@ bool Mesh::collidesWith(Mesh other) //1x1 collision box
 	}
 }
 
+void Mesh::changeColor(float r, float g, float b)
+{
+	red = r;
+	green = g;
+	blue = b;
+}
+
 #pragma region GETTERS
 /*
 GLuint Mesh::getVertP()
