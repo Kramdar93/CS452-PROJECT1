@@ -46,8 +46,10 @@ const float TOP = 9.0f;
 const float START = 20.0f;
 const float INCREMENT = 0.01f;
 unsigned int time_next_powerup;
-float clearance, ceiling_height;
+float clearance, ceiling_height, offset;
 int score = 0;
+const int GOODBADRATIO = 2;
+const int OBJSPACES = 10;
 
 
 #pragma region SHADER_FUNCTIONS
@@ -137,7 +139,7 @@ GLuint makeShaderProgram(GLuint vertexShaderID, GLuint fragmentShaderID) {
 #pragma region HELPER_FUNCTIONS
 
 
-//tris only for now, restricted practical use.
+//tris only for now, restricted practical use. also not really for obj files...
 void parseFlatObjFile(char * filename, GLfloat ** vertices, int * vlength, GLuint ** indices, int * ilength)
 {
 	GLfloat * verts = *vertices; //this is necessary for some reason...
@@ -688,6 +690,7 @@ void renderMesh(Mesh m)
 void gameInit()
 {
 	srand(time(NULL));
+	player.x = -10.0f;
 
 	//static_objects.push_back(new Mesh("test", 0.5f, 0.5f, 0.5f));
 	Mesh * temp = new Mesh("wall", 1.0f, 0.0f, 0.0f);
@@ -700,6 +703,7 @@ void gameInit()
 
 	clearance = 18.0f;
 	ceiling_height = 0.0f; //as in 4 from top of allowed area
+	offset = 0.0f;
 
 	printf("Game init'd!\n");
 }
@@ -734,10 +738,11 @@ void updateWorld()
 	if (wall_objects.back()->x <= START - 2.0f + speed) //trailing wall has moved out of space, can make new walls!
 														//note planes have a with of 2!!!
 	{
+		int ceilingMod = 25;
 		int r = rand() % 3 - 1; //-1, 0, or 1
 		clearance -= INCREMENT;          // always gets smaller... it's a trap!
-		ceiling_height += r * INCREMENT * 10; // makes tunnel twist a bit
-		float offset = 0.5f * (2 * TOP - clearance);
+		ceiling_height += r * INCREMENT * ceilingMod; // makes tunnel twist a bit
+		offset = 0.5f * (2 * TOP - clearance);
 
 		if (clearance < 2.0f) //cant have negative space, remember width
 		{
@@ -745,15 +750,15 @@ void updateWorld()
 		}
 		if (ceiling_height + offset < 0) //ceiling cant be negatively high
 		{
-			ceiling_height = INCREMENT * 10;
+			ceiling_height = INCREMENT * ceilingMod;
 		}
 		if (ceiling_height + offset + clearance > 2 * TOP) //that's lower than -top! do not want!
 		{
-			ceiling_height -= INCREMENT * 20;
+			ceiling_height -= INCREMENT * 2 * ceilingMod;
 		}
 
 		Mesh * temp;
-		temp = new Mesh("wall", 1.0f, 0.0f, r*1.0f);
+		temp = new Mesh("wall", 1.0f, 0.0f, 0.0f);
 		temp->translate(START, TOP - (ceiling_height + offset), 0.0f);
 		wall_objects.push_back(temp);
 
@@ -761,6 +766,48 @@ void updateWorld()
 		temp->translate(START, TOP - (ceiling_height + offset) - clearance, 0.0f);
 		wall_objects.push_back(temp);
 		//printf("added walls!\n");
+		++score; //reward for new segment added.
+	}
+
+	if (static_objects.empty() || static_objects.back()->x < 0) //no objects or last one passed center
+	{
+		Mesh * temp;
+		int rint = (rand() % OBJSPACES) + 1;
+		float position = clearance - ((clearance) / (OBJSPACES+1)) * (rint); //position from wall, selected randomly
+		//(clearance/OBJSPACES) to clearance
+		//printf("%d: %f\n", rint, position);
+
+		if (rand() % (GOODBADRATIO + 1) == 0)
+		{
+			temp = new Mesh("good", 0.0f, 1.0f, 0.0f);
+		}
+		else
+		{
+			temp = new Mesh("bad", 1.0f, 0.0f, 0.0f);
+		}
+
+		if (clearance < 8.0f) //not enough room for purely random, could block player
+			//planes are 2x2
+		{
+			int r = rand() % 2;
+			position -= 4.0f; //give enough room
+			if (position < 2.0f)
+			{
+				position = 2.0f;
+			}
+
+			if (r == 0) //ensure room on top
+			{
+				position = clearance - position; //flip position
+			}
+		}
+
+		if (clearance > 6.0f || temp->name == "good")
+		{
+			temp->translate(START, TOP - (ceiling_height + offset) - position, 0.0f);
+			static_objects.push_back(temp);
+		}
+
 	}
 
 	for each (Mesh * m in wall_objects)
@@ -768,6 +815,22 @@ void updateWorld()
 		if (m->collidesWith(player))
 		{
 			endGame();
+		}
+	}
+	for each (Mesh * m in static_objects)
+	{
+		if (m->collidesWith(player))
+		{
+			if (m->name == "good")
+			{
+				score += 100;
+				m->name = "used";
+				m->changeColor(0.5f, 0.5f, 0.5f);
+			}
+			else if (m->name == "bad")
+			{
+				endGame();
+			}
 		}
 	}
 }
@@ -819,7 +882,7 @@ void update(int val)
 	velY += thrust * speed;
 	player.translate(0.0f, velY, 0.0f);
 	speed += INCREMENT * 0.01f;
-	++score;
+	//++score;
 	//printf("%f\n", player.y);
 	glutPostRedisplay();
 	glutTimerFunc(17, update, 1);
@@ -896,7 +959,7 @@ int main(int argc, char** argv) {
 	glutInit(&argc, argv);
 	glutInitDisplayMode(GLUT_RGBA | GLUT_DOUBLE | GLUT_DEPTH);
 	glutInitWindowSize(800, 500);
-	glutCreateWindow("Shaders");
+	glutCreateWindow("Helicopter++");
 	glutReshapeFunc(changeViewport);
 	glutDisplayFunc(render);
 	glutTimerFunc(17, update, 1);
@@ -924,7 +987,7 @@ int main(int argc, char** argv) {
 	//int ilen = 0;
 
 	//parseFlatObjFile("plane.obj", &vertices, &vlen, &indexArray, &ilen);
-	parseUVObjFile("plane.obj", &vertices, &vlen, &indexArray, &ilen, &texcoord, &tlen);
+	parseUVObjFile("plane.mesh", &vertices, &vlen, &indexArray, &ilen, &texcoord, &tlen);
 
 	printf("vlen: %d\n", vlen);
 	printf("tlen: %d\n", tlen);
