@@ -20,6 +20,7 @@ public:
 	void scale(float dscalex, float dscaley, float dscalez);
 	void getMatrix(GLfloat out_m[4][4]);
 	bool collidesWith(Mesh other);
+	void changeColor(float r, float g, float b);
 	//GLuint getVertP();
 	//GLuint getIndP();
 	//GLuint getTexP();
